@@ -111,6 +111,37 @@ void setup_uart () {
 	Chip_UART_Enable(LPC_USART0);
 }
 
+/**
+ * Microsecond delay.
+ */
+void delay_us(uint32_t delay) {
+
+	// Clock is 30MHz
+	delay *= 30;
+
+	// TODO: can be optimized by triggering interrupt
+	// then wait for interrupt instead of tight loop.
+	uint32_t start = LPC_SCT->COUNT_U;
+	while ( (LPC_SCT->COUNT_U - start) < delay) ;
+}
+
+/**
+ * Assert START button by pulling low and going into input (high Z)
+ * state otherwise. Doing this due the 4.4V logic rail: not sure
+ * if exposing a output high (normally at Vdd or 2.2V) to 4.4V is
+ * good idea.
+ * @state  1 = press button, 0 = normal button released
+ */
+void press_start_button (int state) {
+	if (state == 1) {
+		// Pin to 0V and switch to output
+		Chip_GPIO_SetPinState(LPC_GPIO_PORT,0,PIN_START,0);
+		Chip_GPIO_SetPinDIROutput(LPC_GPIO_PORT,0,PIN_START);
+	} else {
+		// Pin to input (high Z)
+		Chip_GPIO_SetPinDIRInput(LPC_GPIO_PORT,0,PIN_START);
+	}
+}
 
 /**
  * @brief	Handle interrupt from SysTick timer
@@ -240,6 +271,7 @@ int main(void) {
 	Chip_GPIO_Init(LPC_GPIO_PORT);
 	uint32_t clock_hz = Chip_Clock_GetSystemClockRate();
 
+	Chip_GPIO_SetPinDIRInput(LPC_GPIO_PORT,0,PIN_START);
 
 
     tfp_printf("monitoring I2C bus...\r\n");
@@ -267,6 +299,26 @@ int main(void) {
 
 	while (1) {
 		//__WFI();
+
+		// UART simple commands. Single char. "0".."2" set sample speeds 50sps,100sps,200sps.2
+		if (LPC_USART0->STAT & 1) {
+	    		char c = LPC_USART0->RXDATA;
+	    		switch (c) {
+	    		case 'R':
+
+	    			tfp_printf("measuring BP...\r\n");
+	    			// Press for 1 sec to wake, release for 1 sec
+	    			// and press again to start measurement
+	    			press_start_button(1);
+	    			delay_us(1000000);
+	    			press_start_button(0);
+	    			delay_us(1000000);
+	    			press_start_button(1);
+	    			delay_us(1000000);
+	    			press_start_button(0);
+	    			delay_us(1000000);
+	    		}
+		}
 
 		// One of two formats:
 		// read operation: S A0 [ack] addr [ack] S A1 [nak] data-from-eeprom P
